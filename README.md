@@ -55,7 +55,7 @@ shadow-paw-extractor/
     ├── extract_animal.py     # 主程序（全部核心逻辑）
     ├── yolov8n.pt            # YOLOv8 检测模型
     ├── yolov8n-seg.pt        # YOLOv8 分割模型
-    ├── input_images/         # 放入待处理的图片
+    ├── input_images/         # 放入待处理的图片（内含测试用例）
     └── output_masks/         # 输出结果（PNG 掩码）
 ```
 
