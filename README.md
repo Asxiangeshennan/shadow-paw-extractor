@@ -46,6 +46,70 @@
 | 3★ | YOLO框 + Crop Rembg | 缩小范围降低误删 | 有检测框但前两级失败 |
 | 4★ | 全图 Rembg 通用抠图 | 不限类别，终极保底 | 所有方案均失败 |
 
+## 核心代码说明
+
+代码位于 `识别动物/extract_animal.py`（共 335 行，单文件实现），围绕四级优先级级联组织：
+
+### 模型初始化（第 14~30 行）
+
+加载 5 个深度学习模型：YOLOv8n 检测、YOLOv8n-seg 实例分割、ISNet/U²-Net（Rembg 双模型）、DeepLabV3+ 语义分割。权重按需自动下载。
+
+```python
+yolo = YOLO("yolov8n.pt")
+yolo_seg = YOLO("yolov8n-seg.pt")
+session = new_session("isnet-general-use")
+session_u2 = new_session("u2net")
+deeplab = torchvision.models.segmentation.deeplabv3_resnet50(weights="DEFAULT")
+```
+
+### 动物检测 — `detect_animal_bboxes` / `merge_boxes`（第 33~53 行）
+
+YOLOv8n 扫描全图，通过 `ANIMAL_IDS = set(range(16, 26))` 只保留 COCO 数据集的 10 种动物（鸟、猫、牛、狗、马、羊、象、熊、斑马、长颈鹿），非动物目标全部过滤。多只动物时合并为外接矩形，确保一次覆盖。
+
+### 后处理基元
+
+- **`keep_largest`**（第 56~63 行）：`cv2.connectedComponentsWithStats` 连通域分析，只保留面积最大的区域，去除散点噪点
+- **`convex_hull_fill`**（第 66~74 行）：计算轮廓凸包并填充，补全尾巴、四肢等被误切的部位
+
+### Priority 1 — `get_yolo_seg_mask`（第 131~147 行）
+
+YOLOv8n-seg 实例分割，逐实例提取软掩码（>0.5 阈值二值化），合并所有动物。精度最高、能区分个体，作为首选方案。
+
+### Priority 2 — `get_deeplab_mask`（第 111~128 行）
+
+DeepLabV3+（ResNet50 骨干）语义分割，只保留 VOC 的 6 种动物标签。要求覆盖 > 10% 像素才接受，配合 YOLO 检测框做范围约束防误检。
+
+### Priority 3 — `crop_and_rembg`（第 171~208 行）
+
+YOLO 检测框局部裁剪 + Rembg 抠图，缩小背景干扰范围。边距根据框占比自适应：
+- > 70% → 全图 + 凸包填充
+- 40%~70% → 15% 边距
+- < 40% → 30% 边距
+
+### Priority 4 — `get_rembg_mask`（第 77~108 行）
+
+全图 Rembg 通用抠图，ISNet + U²Net 双模型取优，α-matting 开/关各试一次，用轮廓顶点数衡量精细度。**不限类别，终极保底**，确保任何场景都有输出。
+
+### 后处理精化 — `refine_mask`（第 150~168 行）
+
+```python
+gx = cv2.Sobel(gray_img, cv2.CV_32F, 1, 0, ksize=3)
+gy = cv2.Sobel(gray_img, cv2.CV_32F, 0, 1, ksize=3)
+mag = cv2.magnitude(gx, gy)
+```
+
+1. 凸包填充（可选）
+2. **Sobel 梯度检测**原图强边缘 → 膨胀 mask 边界 → 与原图边缘做 AND 运算 → 加回 mask，找回被误切的耳朵尖、爪子、尾巴等细长部位
+3. 形态学闭运算填补内部小孔洞
+
+### 主调度 — `process_image`（第 211~316 行）
+
+四级优先级串联，任一方案命中则进入后处理。最后做**正方形化输出**：提取最小外接正方形 + 8% padding + 反色（白底黑主体）。
+
+### 入口 — `main`（第 319~335 行）
+
+扫描 `input_images/` 下 7 种格式（jpg/jpeg/png/bmp/tiff/tif/webp），逐一处理输出到 `output_masks/`。
+
 ## 目录结构
 
 ```
