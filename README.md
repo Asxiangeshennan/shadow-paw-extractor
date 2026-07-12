@@ -48,7 +48,71 @@
 
 ## 关键代码解析
 
-代码位于 `识别动物/extract_animal.py`（单文件 335 行），以下只说明最核心的几段设计。
+代码位于 `识别动物/extract_animal.py`（单文件 335 行）。
+
+### 0. 模型初始化与动物检测
+
+```python
+ANIMAL_IDS = set(range(16, 26))   # COCO 10 种动物：鸟 猫 狗 马 羊 牛 象 熊 斑马 长颈鹿
+VOC_ANIMALS = {3: "bird", 8: "cat", 10: "cow", 12: "dog", 13: "horse", 17: "sheep"}
+
+yolo = YOLO("yolov8n.pt")                             # 检测
+yolo_seg = YOLO("yolov8n-seg.pt")                     # 实例分割
+session = new_session("isnet-general-use")             # Rembg ISNet
+session_u2 = new_session("u2net")                      # Rembg U²Net
+deeplab = torchvision.models.segmentation.deeplabv3_resnet50(weights="DEFAULT")
+```
+
+所有分割方案都依赖 YOLO 的动物检测结果来定位和约束范围：
+
+```python
+def detect_animal_bboxes(img):
+    results = yolo(img, verbose=False)
+    boxes = []
+    for r in results:
+        for box in r.boxes:
+            cls = int(box.cls[0])
+            if cls in ANIMAL_IDS:                     # 只保留动物，过滤人/车等
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                boxes.append((float(box.conf[0]), x1, y1, x2, y2))
+    return boxes
+
+def merge_boxes(boxes):
+    """多只动物 → 外接矩形，确保一次性覆盖所有动物"""
+    if not boxes:
+        return None
+    return (min(b[1] for b in boxes), min(b[2] for b in boxes),
+            max(b[3] for b in boxes), max(b[4] for b in boxes))
+```
+
+### 1. 基础工具函数（贯穿全流程）
+
+以下两个函数在每个优先级和后处理中反复调用，是整个系统的基石：
+
+```python
+def keep_largest(mask):
+    """连通域分析，只保留面积最大的区域 → 去除散点噪点"""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    if n <= 1:
+        return mask
+    sizes = stats[1:, -1]
+    if len(sizes) == 0:
+        return mask
+    return np.where(labels == (np.argmax(sizes) + 1), 255, 0).astype(np.uint8)
+
+def convex_hull_fill(mask):
+    """计算轮廓凸包并填充 → 补全尾巴、四肢等被误切的部位"""
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return mask
+    hull = cv2.convexHull(np.vstack(contours))
+    hull_mask = np.zeros(mask.shape, dtype=np.uint8)
+    cv2.fillPoly(hull_mask, [hull], 255)
+    return hull_mask
+```
+
+`keep_largest` 出现在每一级分割、后处理精化和最终输出中，是去噪的**第一道防线**。  
+`convex_hull_fill` 专门用于动物特写场景（框占比 > 70%），与 Sobel 边缘细化配合，先用凸包宽松补全，再基于原图梯度修正轮廓。
 
 ### 1. 四级优先级级联调度
 
