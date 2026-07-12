@@ -50,13 +50,21 @@
 
 ```
 shadow-paw-extractor/
-├── README.md                 # 项目说明
+├── .gitignore                          # Git 忽略规则
+├── README.md                           # 项目说明
 └── 识别动物/
-    ├── extract_animal.py     # 主程序（全部核心逻辑）
-    ├── yolov8n.pt            # YOLOv8 检测模型
-    ├── yolov8n-seg.pt        # YOLOv8 分割模型
-    ├── input_images/         # 放入待处理的图片（内含测试用例）
-    └── output_masks/         # 输出结果（PNG 掩码）
+    ├── extract_animal.py               # ★ 主程序（全部核心逻辑）
+    ├── yolov8n.pt                      # YOLOv8 检测模型
+    ├── yolov8n-seg.pt                  # YOLOv8 分割模型
+    ├── input_images/                   # 测试图片（内置 23 张测试用例）
+    │   ├── animal.jpg
+    │   ├── 009f100a052d461cece9f6b7f165fa63.jpg
+    │   ├── 1f5add93a332570f4f84367098490b4a.jpg
+    │   └── ...（共 23 张，涵盖多种动物和场景）
+    └── output_masks/                   # 输出结果（22 张已生成的 PNG 掩码）
+        ├── animal.png
+        ├── 009f100a052d461cece9f6b7f165fa63.png
+        └── ...（运行后自动生成）
 ```
 
 ## 环境要求
@@ -95,7 +103,7 @@ python -c "from ultralytics import YOLO; YOLO('yolov8n.pt'); YOLO('yolov8n-seg.p
 
 ### 1. 准备图片
 
-将图片放入 `识别动物/input_images/` 目录，支持格式：
+`input_images/` 目录已内置 **23 张测试图片**（涵盖猫、狗、鸟、马等多种动物及复杂背景），可直接运行体验。如需处理自己的图片，放入该目录即可，支持格式：
 - JPG/JPEG、PNG、BMP、TIFF/TIF、WEBP
 
 ### 2. 运行程序
